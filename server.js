@@ -1,12 +1,12 @@
 const express = require('express');
 const multer = require('multer');
 const { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand, CreatePresignedUrlCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const path = require('path');
 const {Readable} = require('stream');
 
-const bucket_name = "APITest"
+const bucket_name = "catphotos"
 const HOST = "192.168.6.17";
-const folder_name = "images"
 
 const app = express();
 
@@ -22,11 +22,10 @@ const s3Client = new S3Client({
   },
 });
 
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
-    res.sendFile(
-      path.join(__dirname, 'public', 'index.html')
-  );
+    res.sendFile(path.join(__dirname, 'public', 'index.html'),);
 });
 
 app.post('/upload', async (req, res) => {
@@ -43,14 +42,14 @@ app.post('/upload', async (req, res) => {
     const providedFilename = req.body.filename;
     const params = {
       Bucket: bucket_name, // Your Wasabi bucket name
-      Key: `${folder_name}/${providedFilename}`, // File name in S3
+      Key: providedFilename, // File name in S3
       Body: req.file.buffer,
     };
 
     try {
       const command = new PutObjectCommand(params);
       const data = await s3Client.send(command);
-      res.send(`File uploaded successfully at https://${bucket_name}}.s3.wasabisys.com/${params.Key}`);
+      res.send(`File uploaded successfully at https://${bucket_name}.s3.wasabisys.com/${params.Key}`);
     } catch (s3Err) {
       return res.status(500).send(s3Err.message);
     }
@@ -62,7 +61,6 @@ app.post('/upload', async (req, res) => {
 app.get('/images', async (req, res) => {
     const params = {
       Bucket: bucket_name,
-      Prefix: 'images/',
     };
   
     try {
@@ -77,24 +75,23 @@ app.get('/images', async (req, res) => {
   });
 
   // Generate a pre-signed URL for accessing an image
-app.get('/image-url', async (req, res) => {
-    const { key } = req.query;
+  app.get('/image-url', async (req, res) => {
 
+    const { key } = req.query;
     console.log(key);
-  
+
     if (!key) {
       return res.status(400).send('Key is required');
     }
   
     const params = {
       Bucket: bucket_name,
-      Key: `${folder_name}}/${key}`,
+      Key: key,
       Expires: 60 * 5, // URL expiration time in seconds
     };
   
     try {
-      const command = new CreatePresignedUrlCommand(params);
-      const url = await s3Client.send(command);
+      const url = await getSignedUrl(s3Client, new GetObjectCommand(params));
       res.json({ url });
     } catch (err) {
       return res.status(500).send(err.message);
@@ -107,7 +104,7 @@ app.get('/download', async (req, res) => {
   
     const params = {
       Bucket: bucket_name, // Your Wasabi bucket name
-      Key: `${folder_name}}/${key}`, // File key to download
+      Key: key, // File key to download
     };
 
     console.log(path.basename(key))
